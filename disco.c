@@ -33,19 +33,6 @@ typedef struct MasterBootRecord{
     structParticion mbr_partition_4;//primary or extended partition
 }structMBR;
 
-typedef struct ParticionMontada{
-    char idParticionMontada[5];
-    char nombreParticion[16];
-    char pathDisco[60];
-}structParticionMontada;
-
-typedef struct DiscoMontado{
-    int noPartActivas;
-    char letraAsignada[2];
-    char pathDisco[60];
-}structDiscoMontado;
-
-
 //banderas
 bool banderaNoHayEspacio=false;
 bool banderaParticionesLlenas=false;
