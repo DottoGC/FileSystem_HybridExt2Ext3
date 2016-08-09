@@ -193,6 +193,7 @@ void administrarParticion(char * listaAtributosPorEspacio){
                 }
             }
             crearParticion(sizePartTemp,pathClean,namePartTemp,unitPartTemp,fitPartTemp,typePartTemp);
+            mostrarMBR(pathClean);
         }else{
             //NO HAY DATOS SUFICIENTES PARA CREAR DISCO
         printf("Error: Datos insuficientes para crear particion.\n");
