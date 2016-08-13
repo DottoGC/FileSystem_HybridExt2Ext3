@@ -593,7 +593,7 @@ void crearParticion(int sizePartTemp, char pathPartTemp[50], char namePartTemp[1
     }
 
     if(strcmp(typePartTemp,"l")==0){
-        //1. VERIFICAR SI EXISTE UNA PARTICION EXTENDIDA, SI EXISTE OBTENER POSICION DE INICIO, SI NO MOSTRAR MENSAJE DE ERROR
+        //1. VERIFICAR SI EXISTE UNA PARTICION EXTENDIDA, SI EXISTE OBTENER POSICION DE INICIO PARA ESCRIBIR LOGICA, SI NO MOSTRAR MENSAJE DE ERROR
         if(existeExtendida(pathPartTemp)!=-1){
             verificaSiHayEspacioEnExtendida(pathPartTemp,tamanoEnBytes(sizePartTemp,unitPartTemp));
             if (banderaNoHayEspacioEnExtendida==false){//SI HAY ESPACIO EMPEZAMOS A LEER EL PRIMER EBR
@@ -617,25 +617,33 @@ void crearParticion(int sizePartTemp, char pathPartTemp[50], char namePartTemp[1
                     fwrite(&newEBR,sizeof(structEBR),1,f1);
                     fclose(f1);
                     printf("Particion Logica creada exitosamente en particion extendida principal.!!\n");
-                }else{//Si ya se encuentra activa, leer la posicion del siguiente extended boot record y repeter verifiacion si ya esta acriva, en caso es -1 esta existe siguiente ebr alojarla como la siguiente
-                    if(ebrAux.part_next==-1){//si no existe siguiente ebr, entonces creamos el segundo de la lista
+                }else{//Si ya se encuentra activa, leer la posicion del siguiente extended boot record y repetIr verifiacion si ya esta acriva, en caso es -1 esta existe siguiente ebr alojarla como la siguiente
+                    if(ebrAux.part_next==-1){//si no existe siguiente ebr, entonces agregamos le nueva particion logica a la lista
                         structEBR newEBR;
                         strcpy(newEBR.part_fit,fitPartTemp);
                         strcpy(newEBR.part_name,namePartTemp);
-                        strcpy(newEBR.part_status,"E");
+                        strcpy(newEBR.part_status,"1");
                         newEBR.part_size=tamanoEnBytes(sizePartTemp,unitPartTemp);
                         newEBR.part_next=-1;
-                        newEBR.part_start=posExtendida+(int)sizeof(newEBR)+ebrAux.part_size+(int)sizeof(newEBR);
-                        int siguiete=posExtendida+(int)sizeof(newEBR)+ebrAux.part_size;
-                        fseek(f1,siguiete,SEEK_SET);
-                        fwrite(&newEBR,sizeof(structEBR),1,f1);
+                        newEBR.part_start=posExtendida+(int)sizeof(newEBR)+ebrAux.part_size+(int)sizeof(newEBR)+1;
+
+                        int siguiete=posExtendida+(int)sizeof(newEBR)+ebrAux.part_size+1;
+                        //Debido ah que alteraremos el atributos part_next del ebrAux, lo editamos y lo escribios el cambio en el disco
+                        ebrAux.part_next=siguiete;
+                        fseek(f1,posExtendida,SEEK_SET);
+                        fwrite(&ebrAux,sizeof(structEBR),1,f1);
                         fclose(f1);
+                        //Escribimos la segunda particion en su posicion de inicio
+                        FILE *f2=fopen(pathPartTemp,"rw+b");
+                        fseek(f2,siguiete,SEEK_SET);
+                        fwrite(&newEBR,sizeof(structEBR),1,f2);
+                        fclose(f2);
+
 
                         printf("Particion Logica creada exitosamente en particion extendida.!!\n");
                     }else{//Si no es -1 entonces existe una segunda particion logica activa,.... ent este caso seguir leyendo el tercero y asi sucesivamente...
                         printf("Se prentende crear una tercera o cuarta o quinta particion extendida....\n");
                     }
-
                 }
             }else{//NO HAY ESPACIO, MOSTRAMOS MENSAJE DE ERROR
                 printf("Espacio Insuficiente en la particion Extendida para alojar nuevo particion Logica.");
@@ -820,7 +828,7 @@ void administrarParticion(char * listaAtributosPorEspacio){
                 }
             }
             crearParticion(sizePartTemp,pathClean,namePartTemp,unitPartTemp,fitPartTemp,typePartTemp);
-            mostrarMBR(pathClean);
+            //mostrarMBR(pathClean);
         }else{
             //NO HAY DATOS SUFICIENTES PARA CREAR DISCO
         printf("Error: Datos insuficientes para crear particion.\n");
@@ -1182,7 +1190,48 @@ void escribirMBR(FILE *grafo,char idPartition[5], char pathDisk[60])
                 fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_size_1:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",mbr.mbr_partition_1.part_size);
                 fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_name_1:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",mbr.mbr_partition_1.part_name);
                 if(strcmp(mbr.mbr_partition_1.part_type,"e")==0){
+                    //Si es EXTENDIDA leemos el EBR pordefault para ver si esta activo o no esta activo
+                    int positionFirstEBR;
+                    structEBR auxEBR;
+                    positionFirstEBR = mbr.mbr_partition_1.part_start;
+                    FILE * ff=fopen(pathDisk,"r+b");
+                    fseek(ff,positionFirstEBR,SEEK_SET);
+                    fread(&auxEBR,sizeof(structEBR),1,ff);
+                    fclose(ff);
+                    //Si esta activo el primer imprimimos toda la informacion de la particion logica
+                    if(strcmp(auxEBR.part_status,"1")==0){
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"48\" BGCOLOR=\"khaki\">EBR</TD>\n</TR>\n\n");
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_status:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",auxEBR.part_status);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_fit:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",auxEBR.part_fit);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_start:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",auxEBR.part_start);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_size:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",auxEBR.part_size);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_next:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",auxEBR.part_next);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_name:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",auxEBR.part_name);
 
+                        //Verificamos si nuestro auxEBR apunta a siguiente EBR en dado caso que no su valor es -1
+                        if(auxEBR.part_next!=-1){
+                            //Imprimos los demas EBR en caso que existan mientras auxEBR.partNext !=-1
+                            while(auxEBR.part_next!=-1){
+                                //leeos el siguiente EBR
+                                FILE *auxF=fopen(pathDisk,"rw+b");
+                                fseek(auxF,auxEBR.part_next,SEEK_SET);
+                                structEBR nextEBR;
+                                fread(&nextEBR,sizeof(structEBR),1,auxF);
+                                fclose(auxF);
+
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"48\" BGCOLOR=\"khaki\">EBR</TD>\n</TR>\n\n");
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_status:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",nextEBR.part_status);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_fit:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",nextEBR.part_fit);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_start:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",nextEBR.part_start);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_size:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",nextEBR.part_size);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_next:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",nextEBR.part_next);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_name:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",nextEBR.part_name);
+
+                                auxEBR=nextEBR;
+                            }//Fin WHILE minetras exista siguiente EBR mandarlas a pintar
+                        }//Fin if si existe siguiente EBR
+
+                    }
                 }
             }
 
@@ -1194,7 +1243,48 @@ void escribirMBR(FILE *grafo,char idPartition[5], char pathDisk[60])
                 fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_size_2:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",mbr.mbr_partition_2.part_size);
                 fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_name_2:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",mbr.mbr_partition_2.part_name);
                 if(strcmp(mbr.mbr_partition_2.part_type,"e")==0){
+                    //Si es EXTENDIDA leemos el EBR pordefault para ver si esta activo o no esta activo
+                    int positionFirstEBR;
+                    structEBR auxEBR;
+                    positionFirstEBR = mbr.mbr_partition_2.part_start;
+                    FILE * ff=fopen(pathDisk,"r+b");
+                    fseek(ff,positionFirstEBR,SEEK_SET);
+                    fread(&auxEBR,sizeof(structEBR),1,ff);
+                    fclose(ff);
+                    //Si esta activo el primer imprimimos toda la informacion de la particion logica
+                    if(strcmp(auxEBR.part_status,"1")==0){
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"48\" BGCOLOR=\"khaki\">EBR</TD>\n</TR>\n\n");
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_status:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",auxEBR.part_status);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_fit:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",auxEBR.part_fit);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_start:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",auxEBR.part_start);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_size:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",auxEBR.part_size);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_next:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",auxEBR.part_next);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_name:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",auxEBR.part_name);
 
+                        //Verificamos si nuestro auxEBR apunta a siguiente EBR en dado caso que no su valor es -1
+                        if(auxEBR.part_next!=-1){
+                            //Imprimos los demas EBR en caso que existan mientras auxEBR.partNext !=-1
+                            while(auxEBR.part_next!=-1){
+                                //leeos el siguiente EBR
+                                FILE *auxF=fopen(pathDisk,"r+b");
+                                fseek(auxF,auxEBR.part_next,SEEK_SET);
+                                structEBR nextEBR;
+                                fread(&nextEBR,sizeof(structEBR),1,auxF);
+                                fclose(auxF);
+
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"48\" BGCOLOR=\"khaki\">EBR</TD>\n</TR>\n\n");
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_status:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",nextEBR.part_status);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_fit:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",nextEBR.part_fit);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_start:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",nextEBR.part_start);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_size:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",nextEBR.part_size);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_next:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",nextEBR.part_next);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_name:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",nextEBR.part_name);
+
+                                auxEBR=nextEBR;
+                            }//Fin WHILE minetras exista siguiente EBR mandarlas a pintar
+                        }//Fin if si existe siguiente EBR
+
+                    }
                 }
             }
 
@@ -1207,6 +1297,48 @@ void escribirMBR(FILE *grafo,char idPartition[5], char pathDisk[60])
                 fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_name_3:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",mbr.mbr_partition_3.part_name);
                 if(strcmp(mbr.mbr_partition_3.part_type,"e")==0){
 
+                    //Si es EXTENDIDA leemos el EBR pordefault para ver si esta activo o no esta activo
+                    int positionFirstEBR;
+                    structEBR auxEBR;
+                    positionFirstEBR = mbr.mbr_partition_3.part_start;
+                    FILE * ff=fopen(pathDisk,"r+b");
+                    fseek(ff,positionFirstEBR,SEEK_SET);
+                    fread(&auxEBR,sizeof(structEBR),1,ff);
+                    fclose(ff);
+                    //Si esta activo el primer imprimimos toda la informacion de la particion logica
+                    if(strcmp(auxEBR.part_status,"1")==0){
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"48\" BGCOLOR=\"khaki\">EBR</TD>\n</TR>\n\n");
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_status:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",auxEBR.part_status);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_fit:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",auxEBR.part_fit);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_start:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",auxEBR.part_start);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_size:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",auxEBR.part_size);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_next:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",auxEBR.part_next);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_name:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",auxEBR.part_name);
+
+                        //Verificamos si nuestro auxEBR apunta a siguiente EBR en dado caso que no su valor es -1
+                        if(auxEBR.part_next!=-1){
+                            //Imprimos los demas EBR en caso que existan mientras auxEBR.partNext !=-1
+                            while(auxEBR.part_next!=-1){
+                                //leeos el siguiente EBR
+                                FILE *auxF=fopen(pathDisk,"r+b");
+                                fseek(auxF,auxEBR.part_next,SEEK_SET);
+                                structEBR nextEBR;
+                                fread(&nextEBR,sizeof(structEBR),1,auxF);
+                                fclose(auxF);
+
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"48\" BGCOLOR=\"khaki\">EBR</TD>\n</TR>\n\n");
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_status:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",nextEBR.part_status);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_fit:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",nextEBR.part_fit);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_start:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",nextEBR.part_start);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_size:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",nextEBR.part_size);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_next:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",nextEBR.part_next);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_name:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",nextEBR.part_name);
+
+                                auxEBR=nextEBR;
+                            }//Fin WHILE minetras exista siguiente EBR mandarlas a pintar
+                        }//Fin if si existe siguiente EBR
+
+                    }
                 }
             }
 
@@ -1219,6 +1351,48 @@ void escribirMBR(FILE *grafo,char idPartition[5], char pathDisk[60])
                 fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_name_4:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",mbr.mbr_partition_4.part_name);
                 if(strcmp(mbr.mbr_partition_4.part_type,"e")==0){
 
+                    //Si es EXTENDIDA leemos el EBR pordefault para ver si esta activo o no esta activo
+                    int positionFirstEBR;
+                    structEBR auxEBR;
+                    positionFirstEBR = mbr.mbr_partition_4.part_start;
+                    FILE * ff=fopen(pathDisk,"r+b");
+                    fseek(ff,positionFirstEBR,SEEK_SET);
+                    fread(&auxEBR,sizeof(structEBR),1,ff);
+                    fclose(ff);
+                    //Si esta activo el primer imprimimos toda la informacion de la particion logica
+                    if(strcmp(auxEBR.part_status,"1")==0){
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"48\" BGCOLOR=\"khaki\">EBR</TD>\n</TR>\n\n");
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_status:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",auxEBR.part_status);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_fit:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",auxEBR.part_fit);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_start:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",auxEBR.part_start);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_size:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",auxEBR.part_size);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_next:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",auxEBR.part_next);
+                        fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_name:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",auxEBR.part_name);
+
+                        //Verificamos si nuestro auxEBR apunta a siguiente EBR en dado caso que no su valor es -1
+                        if(auxEBR.part_next!=-1){
+                            //Imprimos los demas EBR en caso que existan mientras auxEBR.partNext !=-1
+                            while(auxEBR.part_next!=-1){
+                                //leeos el siguiente EBR
+                                FILE *auxF=fopen(pathDisk,"r+b");
+                                fseek(auxF,auxEBR.part_next,SEEK_SET);
+                                structEBR nextEBR;
+                                fread(&nextEBR,sizeof(structEBR),1,auxF);
+                                fclose(auxF);
+
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"48\" BGCOLOR=\"khaki\">EBR</TD>\n</TR>\n\n");
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_status:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",nextEBR.part_status);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_fit:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",nextEBR.part_fit);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_start:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",nextEBR.part_start);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_size:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",nextEBR.part_size);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_next:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%d</TD></TR>\n\n",nextEBR.part_next);
+                                fprintf(grafo,"<TR>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">part_name:</TD>\n<TD COLSPAN=\"24\" BGCOLOR=\"khaki\">%s</TD></TR>\n\n",nextEBR.part_name);
+
+                                auxEBR=nextEBR;
+                            }//Fin WHILE minetras exista siguiente EBR mandarlas a pintar
+                        }//Fin if si existe siguiente EBR
+
+                    }
                 }
             }
 
@@ -1270,6 +1444,73 @@ void evaluarAtributosParaReportes(char * tokenASeparar){
     }//FIN WHILE estamos leyendo los dos valores de la cadena a separar por ":"
 }
 
+
+void escribirDISK(FILE *grafo,char idPartition[5], char pathDisk[60])
+{
+        FILE *f = fopen(pathDisk,"r+b");
+        if(f==NULL){
+               printf("ERROR! No fue posible encontrar el disco para crear reporte DISK.\n");
+               return;
+        }else{
+            rewind(f);//Posicionamos el indicador de posicion del archivo al inicio del mismo
+            structMBR mbr;
+            fread(&mbr,(int)sizeof(mbr),1,f);
+
+            fprintf(grafo,"disco[\nlabel=<\n<TABLE WIDTH=\"80%\" BORDER=\"1\" CELLBORDER=\"1\" CELLSPACING=\"0\" CELLPADDING=\"8\">\n<TR>\n");
+            fprintf(grafo,"<TD ROWSPAN=\"2\" COLSPAN=\"10\" BGCOLOR=\"WHIE\">MBR</TD>\n");
+            if(strcmp(mbr.mbr_partition_1.part_status,"1")==0){
+                    if(strcmp(mbr.mbr_partition_1.part_type,"p")==0){//SI ES PRIMARIA
+                        fprintf(grafo,"<TD COLSPAN=\"20\" BGCOLOR=\"WHITE\"><B>PRIMARIA</B><BR/>%s<BR/>Size=%dkb</TD>");
+                    }else{//SI ES EXTENDIDA
+                        char cadena[25]="EBR - ";
+                        //Leemos primer EBR
+                        FILE *f=fopen(pathDisk,"rw+b");
+                        structEBR ebraux;
+                        fseek(f,mbr.mbr_partition_1.part_start,SEEK_SET);
+                        fread(&ebraux,sizeof(structEBR),1,f);
+                        fclose(f);
+                        //Vefificamos si esta activa para concatenar logica
+                        if(strcmp(ebraux.part_status,"1")==0){
+                            strcat(cadena,"LOGICA - ");
+                        }
+                        if(ebraux.part_next!=-1){
+                            strcat(cadena,"EBR - LOGICA");
+                        }
+
+                        fprintf(grafo,"<TD COLSPAN=\"20\" BGCOLOR=\"WHITE\"><B>EXTENDIDA</B><BR/>%s </TD>",cadena);
+                    }
+            }else{//Esta Libre
+                fprintf(grafo,"<TD COLSPAN=\"20\" BGCOLOR=\"WHITE\"><B>LIBRE</B></TD>");
+            }
+
+            fprintf(grafo,"</TR>\n</TABLE>\n>];\n\n");
+        }
+    fclose(f);
+}
+
+
+
+
+void graficarDISK(char idPartition[5], char pathDisk[60]){
+    FILE* file = fopen("DISK.dot","w+");
+
+    if(file != NULL)
+    {
+        fprintf(file,"digraph structs\n{\n");
+        fprintf(file,"labelloc=\"t\";\n{\n");
+        fprintf(file,"label=\"REPOTE DISCO\"\n{\n");
+        fprintf(file,"node [shape=plaintext]\n");
+        //fprintf(file,"avd0 [label=<<TABLE BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"0\" CELLPADDING=\"0\"><TR><TD COLSPAN=\"24\" BGCOLOR=\"khaki\" PORT=\"title\">avd0</TD></TR></TABLE>>];");
+        escribirDISK(file,idPartition,pathDisk);
+
+        fprintf(file,"}");
+        fclose(file);
+    }
+
+    system("/usr/bin/dot -Tjpg DISK.dot -o DISK.jpg");
+    system("gnome-open DISK.jpg");
+}
+
 void generarReporte(char * listaAtributosPorEspacio){
     //En la lista tenemos los tokenes de tipo -TIPO=VALOR
     char *token;
@@ -1282,7 +1523,7 @@ void generarReporte(char * listaAtributosPorEspacio){
     *VERIFICAMOS SI HAY SUFICIENTES DATOS COMO PARA CREAR UN DISCO NUEVO. DE NO TENER DATOS MINIMOS
     * NO CREAMOS EL DISCO Y MOSTRAMOS MENSAJE DE ERROR QUE NO SE ENCONTRARON SUFIICIENTES DATOS
     */
-    if((strcmp(idPartRepTemp,"")!=0) && (strcmp(nameRepTemp,"mbr")==0)){
+    if((strcmp(idPartRepTemp,"")!=0) && (strcmp(nameRepTemp,"\"mbr\"")==0)){
         //VIENEN DATOS MINIMOS -> CREAMOS REPORTE
         char pathDiskOfID[60];
         strcpy(pathDiskOfID,obtenerPATHxID(idPartRepTemp));
@@ -1299,6 +1540,23 @@ void generarReporte(char * listaAtributosPorEspacio){
             }
         }
         graficarMBR(idPartRepTemp,pathDiskClean);
+    }else if((strcmp(idPartRepTemp,"")!=0) && (strcmp(nameRepTemp,"\"disk\"")==0)){
+        //VIENEN DATOS MINIMOS -> CREAMOS REPORTE
+        char pathDiskOfID[60];
+        strcpy(pathDiskOfID,obtenerPATHxID(idPartRepTemp));
+
+        char pathDiskClean[60];
+        int j=0; //index of new array
+        int i;
+        for(i=0; i<60; i++){//Recorremos el array del la ruta de directorios y formamos nuevo array sin el caracter de comillas
+            if(pathDiskOfID[i]=='"'){
+            //Nada q hacer, Ignoramos el caracter
+            }else{
+                pathDiskClean[j]=pathDiskOfID[i];//Cualquier otro caracter lo compiamos al nuevo array
+                j=j+1;//y aumentamos el indice del nuevo array para estar listo en recibir otro caracter
+            }
+        }
+        graficarDISK(idPartRepTemp,pathDiskClean);
     }else{
         //NO HAY DATOS SUFICIENTES PARA CREAR REPORTE
         printf("Error: Datos insuficientes para crear reporte.\n");
